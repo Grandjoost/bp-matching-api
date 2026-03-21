@@ -286,7 +286,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { dealId } = req.query;
+    const { dealId, nurFreie } = req.query;
     if (!dealId) {
       return res.status(400).json({ error: "dealId parameter required" });
     }
@@ -361,8 +361,13 @@ module.exports = async function handler(req, res) {
     // 7. Sortieren: Score absteigend, dann Sterne absteigend
     scored.sort((a, b) => b.score - a.score || b.stars - a.stars);
 
+    // 7b. Optional: Nur freie BKs
+    const filtered = nurFreie
+      ? scored.filter((bk) => bk.einsatzStatus === "frei" || !bk.einsatzStatus)
+      : scored;
+
     // 8. Top N nehmen
-    const topBKs = scored.slice(0, MAX_RESULTS);
+    const topBKs = filtered.slice(0, MAX_RESULTS);
 
     // 9. Agenturen laden (nur für Top N)
     const topContactIds = topBKs.map((bk) => bk.contactId);
@@ -379,7 +384,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       results,
       meta: {
-        totalBKs: scored.length,
+        totalBKs: filtered.length,
         shown: results.length,
         dealComplete: true,
         kategorie,
