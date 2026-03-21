@@ -22,19 +22,43 @@ const DEAL_PROPERTIES = [
 ];
 
 const BK_PROPERTIES = [
+  // Persönliche Daten
+  "bp_anrede",
   "firstname",
   "lastname",
-  "bp_anrede",
-  "deutschkenntnisse",
-  "erfahrung",
-  "fuhrerschein_bk",
-  "ab_wann_ware_die_bk_einsatzbereit",
-  "transfer__heben__umlagern_ohne_hilfsmittel_bis_kg",
-  "pflegeerfahrung_in_jahren_bk",
+  "spitzname",
+  "bp_geburtsdatum",
+  "alter_bk",
+  "familienstand",
+  "kinder",
+  "country",
+  "email",
+  "mobilephone",
+  "beschreibung",
+  // Betreuungsprofil
   "kategorie_bk",
+  "deutschkenntnisse",
+  "ab_wann_ware_die_bk_einsatzbereit",
+  "raucher_bk",
+  "zigaretten_am_tag",
+  "fuhrerschein_bk",
+  // Erfahrung
+  "pflegeerfahrung_in_jahren_bk",
+  "erfahrung",
+  "transfer__heben__umlagern_ohne_hilfsmittel_bis_kg",
+  "letzte_betreuungseinsatze",
+  // Ausbildung
+  "ausbildungen_bk",
+  "sonstige_ausbildung__details",
+  "zertifikate",
+  // Foto
+  "foto_betreuungskraft",
 ];
 
 const MAX_RESULTS = 10;
+
+const SERVICE_STAGE_LAEUFT = "600b692d-a3fe-4052-9cd7-278b134d7941";
+const SERVICE_STAGE_VORBEREITUNG = "8e2b21d0-7a90-4968-8f8c-a8525cc49c70";
 
 async function hubspotFetch(path, options = {}) {
   const res = await fetch(`${HUBSPOT_API}${path}`, {
@@ -154,6 +178,125 @@ async function fetchAgenturen(contactIds) {
   return result;
 }
 
+const BEWERTUNG_PUNKTE = { gut: 5, mittel: 3, schlecht: 1 };
+
+function calcBewertungStars(bewertungen) {
+  if (bewertungen.length === 0) return 0;
+  const sum = bewertungen.reduce((acc, b) => acc + (BEWERTUNG_PUNKTE[b] || 0), 0);
+  const avg = sum / bewertungen.length;
+  if (avg >= 4.5) return 5;
+  if (avg >= 3.5) return 4;
+  if (avg >= 2.5) return 3;
+  if (avg >= 1.5) return 2;
+  return 1;
+}
+
+async function fetchEinsatzStatus(contactIds) {
+  if (contactIds.length === 0) return {};
+
+  const statusMap = {};
+  const bewertungMap = {}; // contactId → [bewertungen]
+
+  // Services (Betreuungseinsätze) sind über Association 798 mit Contacts verknüpft
+  const batches = [];
+  for (let i = 0; i < contactIds.length; i += 100) {
+    batches.push(contactIds.slice(i, i + 100));
+  }
+
+  for (const batch of batches) {
+    try {
+      // Associations: Contact → Services laden
+      const data = await hubspotFetch(
+        "/crm/v4/associations/contacts/0-162/batch/read",
+        {
+          method: "POST",
+          body: JSON.stringify({ inputs: batch.map((id) => ({ id })) }),
+        }
+      );
+
+      // Service-IDs sammeln pro Contact
+      const contactServices = {};
+      for (const result of data.results || []) {
+        const contactId = result.from?.id;
+        const serviceIds = (result.to || []).map((t) => t.toObjectId);
+        if (contactId && serviceIds.length > 0) {
+          contactServices[contactId] = serviceIds;
+        }
+      }
+
+      // Service-Properties per Batch laden
+      const allServiceIds = Object.values(contactServices).flat();
+      if (allServiceIds.length === 0) continue;
+
+      const uniqueServiceIds = [...new Set(allServiceIds)];
+      for (let j = 0; j < uniqueServiceIds.length; j += 100) {
+        const serviceBatch = uniqueServiceIds.slice(j, j + 100);
+        const serviceData = await hubspotFetch(
+          "/crm/v3/objects/0-162/batch/read",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              inputs: serviceBatch.map((id) => ({ id })),
+              properties: ["hs_pipeline_stage", "betreuungsbeginn", "betreuungsende", "hs_tags"],
+            }),
+          }
+        );
+
+        const serviceProps = {};
+        for (const svc of serviceData.results || []) {
+          serviceProps[svc.id] = svc.properties || {};
+        }
+
+        // Status + Betreuungsende + Bewertungen pro Contact bestimmen
+        for (const [contactId, svcIds] of Object.entries(contactServices)) {
+          if (!bewertungMap[contactId]) bewertungMap[contactId] = [];
+
+          for (const svcId of svcIds) {
+            const p = serviceProps[svcId];
+            if (!p) continue;
+
+            // Bewertung sammeln
+            const tags = p.hs_tags;
+            if (tags) {
+              const tagList = tags.split(";").map((t) => t.trim().toLowerCase());
+              for (const tag of tagList) {
+                if (BEWERTUNG_PUNKTE[tag] !== undefined) {
+                  bewertungMap[contactId].push(tag);
+                }
+              }
+            }
+
+            // Status bestimmen (läuft hat Vorrang)
+            if (statusMap[contactId]?.status === "laeuft") continue;
+
+            const stage = p.hs_pipeline_stage;
+            if (stage === SERVICE_STAGE_LAEUFT) {
+              statusMap[contactId] = { status: "laeuft", betreuungsende: p.betreuungsende || "" };
+            } else if (stage === SERVICE_STAGE_VORBEREITUNG) {
+              statusMap[contactId] = { status: "geplant", betreuungsende: p.betreuungsende || "" };
+            }
+          }
+        }
+      }
+    } catch {
+      // Services optional — weiter ohne
+    }
+  }
+
+  // Bewertungs-Sterne berechnen und an statusMap anhängen
+  for (const contactId of contactIds) {
+    const bewertungen = bewertungMap[contactId] || [];
+    const stars = calcBewertungStars(bewertungen);
+    if (statusMap[contactId]) {
+      statusMap[contactId].bewertungStars = stars;
+    } else {
+      statusMap[contactId] = { status: "frei", betreuungsende: "", bewertungStars: stars };
+    }
+  }
+
+  return statusMap;
+}
+
 module.exports = async function handler(req, res) {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -202,33 +345,88 @@ module.exports = async function handler(req, res) {
       if (isGenderExcluded(dealProps, bkProps)) continue;
 
       const { score, details } = calculateScore(dealProps, bkProps);
+      const avatarUrl = bkProps.foto_betreuungskraft || "";
+
       scored.push({
         contactId: bk.id,
         name: [bkProps.firstname, bkProps.lastname].filter(Boolean).join(" "),
         score,
-        stars: getStars(score),
+        stars: 0,
         kategorie: bkProps.kategorie_bk || kategorie,
         deutsch: bkProps.deutschkenntnisse || "",
         verfuegbarAb: bkProps.ab_wann_ware_die_bk_einsatzbereit || "",
         erfahrungen: details.krankheiten?.matched || [],
+        avatarUrl,
+        // Alle Detail-Properties durchreichen
+        profil: {
+          anrede: bkProps.bp_anrede || "",
+          vorname: bkProps.firstname || "",
+          nachname: bkProps.lastname || "",
+          spitzname: bkProps.spitzname || "",
+          geburtsdatum: bkProps.bp_geburtsdatum || "",
+          alter: bkProps.bp_geburtsdatum ? String(Math.floor((Date.now() - new Date(bkProps.bp_geburtsdatum).getTime()) / (365.25 * 24 * 60 * 60 * 1000))) : "",
+          familienstand: bkProps.familienstand || "",
+          kinder: bkProps.kinder || "",
+          land: bkProps.country || "",
+          email: bkProps.email || "",
+          handynummer: bkProps.mobilephone || "",
+          beschreibung: bkProps.beschreibung || "",
+          kategorie: bkProps.kategorie_bk || "",
+          deutschkenntnisse: bkProps.deutschkenntnisse || "",
+          verfuegbarAb: bkProps.ab_wann_ware_die_bk_einsatzbereit || "",
+          raucher: bkProps.raucher_bk || "",
+          zigarettenAmTag: bkProps.zigaretten_am_tag || "",
+          fuehrerschein: bkProps.fuhrerschein_bk || "",
+          pflegeerfahrungJahre: bkProps.pflegeerfahrung_in_jahren_bk || "",
+          erfahrung: bkProps.erfahrung || "",
+          transferKg: bkProps.transfer__heben__umlagern_ohne_hilfsmittel_bis_kg || "",
+          letzteEinsaetze: (bkProps.letzte_betreuungseinsatze || "")
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<\/p>/gi, "\n")
+            .replace(/<[^>]*>/g, "")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim(),
+          ausbildungen: bkProps.ausbildungen_bk || "",
+          sonstigeAusbildung: bkProps.sonstige_ausbildung__details || "",
+          zertifikate: bkProps.zertifikate || "",
+        },
         details,
       });
     }
 
-    // 5. Sortieren nach Score (absteigend)
-    scored.sort((a, b) => b.score - a.score);
+    // 5. Einsatz-Status + Bewertungs-Sterne für ALLE BKs laden
+    const allContactIds = scored.map((bk) => bk.contactId);
+    const einsatzMap = await fetchEinsatzStatus(allContactIds);
 
-    // 6. Top N nehmen
+    // 6. Sterne + Status anreichern
+    for (const bk of scored) {
+      const einsatz = einsatzMap[bk.contactId];
+      if (einsatz) {
+        bk.stars = einsatz.bewertungStars || 0;
+        bk.einsatzStatus = einsatz.status || "frei";
+        if (einsatz.betreuungsende) {
+          bk.verfuegbarAb = einsatz.betreuungsende;
+        }
+      }
+    }
+
+    // 7. Sortieren: Score absteigend, dann Sterne absteigend
+    scored.sort((a, b) => b.score - a.score || b.stars - a.stars);
+
+    // 8. Top N nehmen
     const topBKs = scored.slice(0, MAX_RESULTS);
 
-    // 7. Agenturen laden für Top BKs
-    const contactIds = topBKs.map((bk) => bk.contactId);
-    const agenturMap = await fetchAgenturen(contactIds);
+    // 9. Agenturen laden (nur für Top N)
+    const topContactIds = topBKs.map((bk) => bk.contactId);
+    const agenturMap = await fetchAgenturen(topContactIds);
 
-    // 8. Response zusammenbauen
+    // 10. Response zusammenbauen
     const results = topBKs.map((bk) => ({
       ...bk,
       agentur: agenturMap[bk.contactId] || "",
+      einsatzStatus: bk.einsatzStatus || "frei",
       link: `https://app-eu1.hubspot.com/contacts/${PORTAL_ID}/contact/${bk.contactId}`,
     }));
 
