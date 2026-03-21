@@ -22,36 +22,18 @@ const DEAL_PROPERTIES = [
 ];
 
 const BK_PROPERTIES = [
-  // Persönliche Daten
-  "bp_anrede",
+  // Scoring-relevant
   "firstname",
   "lastname",
-  "spitzname",
-  "bp_geburtsdatum",
-  "alter_bk",
-  "familienstand",
-  "kinder",
-  "country",
-  "email",
-  "mobilephone",
-  "beschreibung",
-  // Betreuungsprofil
+  "bp_anrede",
   "kategorie_bk",
   "deutschkenntnisse",
-  "ab_wann_ware_die_bk_einsatzbereit",
-  "raucher_bk",
-  "zigaretten_am_tag",
-  "fuhrerschein_bk",
-  // Erfahrung
-  "pflegeerfahrung_in_jahren_bk",
   "erfahrung",
+  "fuhrerschein_bk",
+  "ab_wann_ware_die_bk_einsatzbereit",
   "transfer__heben__umlagern_ohne_hilfsmittel_bis_kg",
-  "letzte_betreuungseinsatze",
-  // Ausbildung
-  "ausbildungen_bk",
-  "sonstige_ausbildung__details",
-  "zertifikate",
-  // Foto
+  "pflegeerfahrung_in_jahren_bk",
+  // Display (minimal)
   "foto_betreuungskraft",
 ];
 
@@ -357,42 +339,6 @@ module.exports = async function handler(req, res) {
         verfuegbarAb: bkProps.ab_wann_ware_die_bk_einsatzbereit || "",
         erfahrungen: details.krankheiten?.matched || [],
         avatarUrl,
-        // Alle Detail-Properties durchreichen
-        profil: {
-          anrede: bkProps.bp_anrede || "",
-          vorname: bkProps.firstname || "",
-          nachname: bkProps.lastname || "",
-          spitzname: bkProps.spitzname || "",
-          geburtsdatum: bkProps.bp_geburtsdatum || "",
-          alter: bkProps.bp_geburtsdatum ? String(Math.floor((Date.now() - new Date(bkProps.bp_geburtsdatum).getTime()) / (365.25 * 24 * 60 * 60 * 1000))) : "",
-          familienstand: bkProps.familienstand || "",
-          kinder: bkProps.kinder || "",
-          land: bkProps.country || "",
-          email: bkProps.email || "",
-          handynummer: bkProps.mobilephone || "",
-          beschreibung: bkProps.beschreibung || "",
-          kategorie: bkProps.kategorie_bk || "",
-          deutschkenntnisse: bkProps.deutschkenntnisse || "",
-          verfuegbarAb: bkProps.ab_wann_ware_die_bk_einsatzbereit || "",
-          raucher: bkProps.raucher_bk || "",
-          zigarettenAmTag: bkProps.zigaretten_am_tag || "",
-          fuehrerschein: bkProps.fuhrerschein_bk || "",
-          pflegeerfahrungJahre: bkProps.pflegeerfahrung_in_jahren_bk || "",
-          erfahrung: bkProps.erfahrung || "",
-          transferKg: bkProps.transfer__heben__umlagern_ohne_hilfsmittel_bis_kg || "",
-          letzteEinsaetze: (bkProps.letzte_betreuungseinsatze || "")
-            .replace(/<br\s*\/?>/gi, "\n")
-            .replace(/<\/p>/gi, "\n")
-            .replace(/<[^>]*>/g, "")
-            .replace(/&nbsp;/g, " ")
-            .replace(/&amp;/g, "&")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim(),
-          ausbildungen: bkProps.ausbildungen_bk || "",
-          sonstigeAusbildung: bkProps.sonstige_ausbildung__details || "",
-          zertifikate: bkProps.zertifikate || "",
-        },
-        details,
       });
     }
 
