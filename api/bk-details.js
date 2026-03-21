@@ -33,6 +33,16 @@ const DETAIL_PROPERTIES = [
   "zertifikate",
   // Foto
   "foto_betreuungskraft",
+  // Bewertungen (Rollup)
+  "bk_bewertung_durchschnitt",
+  "bk_bewertung_anzahl",
+  "bk_bewertung_freundlichkeit_avg",
+  "bk_bewertung_puenktlichkeit_avg",
+  "bk_bewertung_fachkenntnis_avg",
+  "bk_bewertung_kommunikation_avg",
+  "bk_bewertung_hygiene_avg",
+  "bk_bewertung_gesamt_avg",
+  "bk_weiterempfehlung_anzahl",
 ];
 
 async function hubspotFetch(path, options = {}) {
@@ -130,6 +140,17 @@ module.exports = async function handler(req, res) {
         ausbildungen: p.ausbildungen_bk || "",
         sonstigeAusbildung: p.sonstige_ausbildung__details || "",
         zertifikate: p.zertifikate || "",
+      },
+      bewertung: {
+        durchschnitt: parseFloat(p.bk_bewertung_durchschnitt) || 0,
+        anzahl: parseInt(p.bk_bewertung_anzahl) || 0,
+        freundlichkeit: parseFloat(p.bk_bewertung_freundlichkeit_avg) || 0,
+        puenktlichkeit: parseFloat(p.bk_bewertung_puenktlichkeit_avg) || 0,
+        fachkenntnis: parseFloat(p.bk_bewertung_fachkenntnis_avg) || 0,
+        kommunikation: parseFloat(p.bk_bewertung_kommunikation_avg) || 0,
+        hygiene: parseFloat(p.bk_bewertung_hygiene_avg) || 0,
+        gesamt: parseFloat(p.bk_bewertung_gesamt_avg) || 0,
+        weiterempfehlungen: parseInt(p.bk_weiterempfehlung_anzahl) || 0,
       },
       link: `https://app-eu1.hubspot.com/contacts/${PORTAL_ID}/contact/${contactId}`,
     });
