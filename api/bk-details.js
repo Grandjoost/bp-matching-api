@@ -1,4 +1,4 @@
-const HUBSPOT_API = "https://api.hubapi.com";
+const HUBSPOT_API = "https://api-eu1.hubapi.com";
 const TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const PORTAL_ID = process.env.HUBSPOT_PORTAL_ID || "143405850";
 
