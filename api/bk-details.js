@@ -26,6 +26,7 @@ const DETAIL_PROPERTIES = [
   "pflegeerfahrung_in_jahren_bk",
   "erfahrung",
   "transfer__heben__umlagern_ohne_hilfsmittel_bis_kg",
+  "bk_anzahl_pflegebedurftige",
   "letzte_betreuungseinsatze",
   // Ausbildung
   "ausbildungen_bk",
@@ -101,14 +102,14 @@ module.exports = async function handler(req, res) {
       ? String(Math.floor((Date.now() - new Date(p.bp_geburtsdatum).getTime()) / (365.25 * 24 * 60 * 60 * 1000)))
       : "";
 
-    // 4. Letzte Einsätze HTML bereinigen
+    // 4. Letzte Einsätze: HTML → Plaintext, 1:1 wie im Feld
     const letzteEinsaetze = (p.letzte_betreuungseinsatze || "")
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/p>/gi, "\n")
+      .replace(/<\/div>/gi, "\n")
       .replace(/<[^>]*>/g, "")
       .replace(/&nbsp;/g, " ")
       .replace(/&amp;/g, "&")
-      .replace(/\n{3,}/g, "\n\n")
       .trim();
 
     return res.status(200).json({
@@ -136,6 +137,7 @@ module.exports = async function handler(req, res) {
         pflegeerfahrungJahre: p.pflegeerfahrung_in_jahren_bk || "",
         erfahrung: p.erfahrung || "",
         transferKg: p.transfer__heben__umlagern_ohne_hilfsmittel_bis_kg || "",
+        anzahlPflegebedurftige: p.bk_anzahl_pflegebedurftige || "",
         letzteEinsaetze,
         ausbildungen: p.ausbildungen_bk || "",
         sonstigeAusbildung: p.sonstige_ausbildung__details || "",

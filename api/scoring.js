@@ -1,6 +1,9 @@
 /**
  * BK Matching Scoring Module
  * Max Score = 100 Punkte (Kategorie bereits per Search gefiltert → immer 20)
+ *
+ * Hard Filter (KO): Geschlecht, Anzahl Pflegebedürftige
+ * Scoring: Kategorie(20) + Deutsch(15) + Krankheiten(30) + Pflegeerfahrung(20) + Transfer(10) + Führerschein(5)
  */
 
 const DEUTSCH_LEVELS = [
@@ -26,29 +29,14 @@ const DEUTSCH_LEVEL_NORMALIZE = {
   "sehr_gute_bis_fliessende_deutschkenntnisse": 4,
 };
 
-const DISEASE_MAP = {
-  mp_demenz: ["Demenz", "Demenz Anfangsstadium", "Demenz Fortgeschritten"],
-  mp_harninkontinenz: ["Inkontinenz"],
-  mp_stuhlinkontinenz: ["Inkontinenz"],
-  mp_querschnitt: ["Querschnittslähmung"],
-  mp_suchterkrankung: ["Suchterkrankung"],
-  mp_hochansteckend: ["Hochansteckende Krankheiten"],
-};
-
-const KRANKHEITEN_WEITERE_MAP = {
-  diabetes: ["Diabetes (insulinpflichtig)"],
-  parkinson: ["Parkinson"],
-  ms: ["Multiple Sklerose (MS)"],
-  schlaganfall: ["Schlaganfall"],
-  herzerkrankung: ["Herz-Kreislaufprobleme", "Herzinfarkt"],
-  copd: ["COPD"],
-};
-
 // Geschlechts-Mapping: Deal mp_geschlecht_bk → BK bp_anrede
 const GENDER_MAP = {
   weiblich: ["Frau"],
   maennlich: ["Herr"],
 };
+
+// Anzahl Pflegebedürftige: "zwei" > "eine"
+const ANZAHL_ORDER = { eine: 1, zwei: 2 };
 
 function getDeutschIndex(value) {
   if (!value) return -1;
@@ -69,7 +57,7 @@ function parseCheckboxField(value) {
 }
 
 /**
- * Prüft ob BK nach Geschlecht gefiltert werden soll.
+ * Hard Filter: Geschlecht.
  * Gibt true zurück wenn BK NICHT passt (= ausschließen).
  */
 function isGenderExcluded(deal, bk) {
@@ -81,6 +69,25 @@ function isGenderExcluded(deal, bk) {
 
   const bkAnrede = (bk.bp_anrede || "").trim();
   return !allowedAnreden.includes(bkAnrede);
+}
+
+/**
+ * Hard Filter: Anzahl Pflegebedürftige.
+ * Gibt true zurück wenn BK NICHT passt (= ausschließen).
+ * Deal fordert z.B. "zwei" → BK muss auch "zwei" können.
+ */
+function isAnzahlExcluded(deal, bk) {
+  const dealAnzahl = deal.mp_anzahl_pflegebed;
+  if (!dealAnzahl) return false; // nicht angegeben → kein Filter
+
+  const bkAnzahl = bk.bk_anzahl_pflegebedurftige;
+  if (!bkAnzahl) return false; // BK hat keine Angabe → nicht ausschließen
+
+  const dealVal = ANZAHL_ORDER[dealAnzahl] || 0;
+  const bkVal = ANZAHL_ORDER[bkAnzahl] || 0;
+
+  // BK muss mindestens so viele können wie Deal fordert
+  return bkVal < dealVal;
 }
 
 /**
@@ -105,64 +112,49 @@ function calculateScore(deal, bk) {
     details.deutsch = { points: 0, max: 15, match: false };
   }
 
-  // 3. Verfügbarkeit (20 Punkte)
-  const dealStart = deal.bp_service_startdate
-    ? new Date(deal.bp_service_startdate)
-    : null;
-  const bkReady = bk.ab_wann_ware_die_bk_einsatzbereit
-    ? new Date(bk.ab_wann_ware_die_bk_einsatzbereit)
-    : null;
-  if (!dealStart || !bkReady || bkReady <= dealStart) {
-    details.verfuegbarkeit = { points: 20, max: 20, match: true };
-    score += 20;
-  } else {
-    details.verfuegbarkeit = { points: 0, max: 20, match: false };
-  }
-
-  // 4. Krankheitserfahrung (30 Punkte, anteilig)
+  // 3. Krankheitserfahrung (30 Punkte, anteilig)
+  // Case-insensitive Vergleich, da interne Werte zwischen Deal und BK abweichen können
   const bkErfahrung = parseCheckboxField(bk.erfahrung);
-  const requiredDiseases = [];
-  const matchedDiseases = [];
+  const bkErfahrungLower = bkErfahrung.map((e) => e.toLowerCase());
+  const requiredDiseases = parseCheckboxField(deal.mp_krankheiten_weitere)
+    .filter((d) => d.toLowerCase() !== "sonstige");
 
-  // Einzelfelder prüfen
-  for (const [dealProp, bkLabels] of Object.entries(DISEASE_MAP)) {
-    if (deal[dealProp] === "ja") {
-      requiredDiseases.push(...bkLabels);
-      const found = bkLabels.some((label) => bkErfahrung.includes(label));
-      if (found) matchedDiseases.push(...bkLabels.filter((l) => bkErfahrung.includes(l)));
-    }
-  }
-
-  // mp_krankheiten_weitere (Checkbox-Feld)
-  const weitereKrankheiten = parseCheckboxField(deal.mp_krankheiten_weitere);
-  for (const krankheit of weitereKrankheiten) {
-    const bkLabels = KRANKHEITEN_WEITERE_MAP[krankheit];
-    if (bkLabels) {
-      requiredDiseases.push(...bkLabels);
-      const found = bkLabels.some((label) => bkErfahrung.includes(label));
-      if (found) matchedDiseases.push(...bkLabels.filter((l) => bkErfahrung.includes(l)));
-    }
-  }
-
-  // Unique zählen
-  const uniqueRequired = [...new Set(requiredDiseases)];
-  const uniqueMatched = [...new Set(matchedDiseases)];
-
-  if (uniqueRequired.length === 0) {
+  if (requiredDiseases.length === 0) {
     details.krankheiten = { points: 30, max: 30, matched: [], required: [], match: true };
     score += 30;
   } else {
+    const matchedDiseases = requiredDiseases.filter((d) =>
+      bkErfahrungLower.includes(d.toLowerCase())
+    );
     const krankheitenScore = Math.round(
-      (uniqueMatched.length / uniqueRequired.length) * 30
+      (matchedDiseases.length / requiredDiseases.length) * 30
     );
     details.krankheiten = {
       points: krankheitenScore,
       max: 30,
-      matched: uniqueMatched,
-      required: uniqueRequired,
+      matched: matchedDiseases,
+      required: requiredDiseases,
       match: krankheitenScore === 30,
     };
     score += krankheitenScore;
+  }
+
+  // 4. Pflegeerfahrung (20 Punkte)
+  const dealErfahrung = deal.mp_pflegeerfahrung;
+  const bkJahre = parseFloat(bk.pflegeerfahrung_in_jahren_bk) || 0;
+
+  if (!dealErfahrung || dealErfahrung === "grundkenntnisse") {
+    // Grundkenntnisse → jede BK passt
+    details.pflegeerfahrung = { points: 20, max: 20, match: true };
+    score += 20;
+  } else if (dealErfahrung === "fortgeschritten" && bkJahre >= 3) {
+    details.pflegeerfahrung = { points: 20, max: 20, match: true };
+    score += 20;
+  } else if (dealErfahrung === "langjaehrig" && bkJahre >= 5) {
+    details.pflegeerfahrung = { points: 20, max: 20, match: true };
+    score += 20;
+  } else {
+    details.pflegeerfahrung = { points: 0, max: 20, match: false };
   }
 
   // 5. Körpergewicht / Transfer (10 Punkte)
@@ -210,4 +202,23 @@ function getStars(score) {
   return 1;
 }
 
-module.exports = { calculateScore, getStars, isGenderExcluded, parseCheckboxField };
+/**
+ * Hard Filter: Rauchen.
+ * "unbedingt Nichtraucher" → BK muss Nichtraucher sein.
+ * "Nur im Freien" oder nicht gesetzt → kein Filter.
+ */
+function isRauchenExcluded(deal, bk) {
+  const dealRauchen = (deal.bk_rauchen || "").toLowerCase().trim();
+  if (!dealRauchen || dealRauchen === "nur im freien") return false;
+
+  // "unbedingt Nichtraucher" → BK muss "false" (Nein) sein
+  if (dealRauchen.includes("nichtraucher")) {
+    const bkRaucher = (bk.raucher_bk || "").toLowerCase().trim();
+    // Nur "false" = Nichtraucher, alles andere (true, e-zigarette, leer) → ausschließen
+    return bkRaucher !== "false";
+  }
+
+  return false;
+}
+
+module.exports = { calculateScore, getStars, isGenderExcluded, isAnzahlExcluded, isRauchenExcluded, parseCheckboxField };

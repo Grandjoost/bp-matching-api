@@ -1,4 +1,4 @@
-const { calculateScore, getStars, isGenderExcluded } = require("./scoring");
+const { calculateScore, isGenderExcluded, isAnzahlExcluded, isRauchenExcluded } = require("./scoring");
 
 const HUBSPOT_API = "https://api-eu1.hubapi.com";
 const TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
@@ -9,16 +9,13 @@ const DEAL_PROPERTIES = [
   "mp_deutschkenntnisse",
   "bp_service_startdate",
   "mp_geschlecht_bk",
-  "mp_demenz",
-  "mp_harninkontinenz",
-  "mp_stuhlinkontinenz",
-  "mp_querschnitt",
-  "mp_suchterkrankung",
-  "mp_hochansteckend",
   "mp_krankheiten_weitere",
   "mp_koerpergewicht",
   "mp_transfer",
   "mp_fuehrerschein",
+  "mp_pflegeerfahrung",
+  "mp_anzahl_pflegebed",
+  "bk_rauchen",
 ];
 
 const BK_PROPERTIES = [
@@ -33,6 +30,8 @@ const BK_PROPERTIES = [
   "ab_wann_ware_die_bk_einsatzbereit",
   "transfer__heben__umlagern_ohne_hilfsmittel_bis_kg",
   "pflegeerfahrung_in_jahren_bk",
+  "bk_anzahl_pflegebedurftige",
+  "raucher_bk",
   // Display (minimal)
   "foto_betreuungskraft",
 ];
@@ -325,6 +324,10 @@ module.exports = async function handler(req, res) {
 
       // Hard Filter: Geschlecht
       if (isGenderExcluded(dealProps, bkProps)) continue;
+      // Hard Filter: Anzahl Pflegebedürftige
+      if (isAnzahlExcluded(dealProps, bkProps)) continue;
+      // Hard Filter: Rauchen
+      if (isRauchenExcluded(dealProps, bkProps)) continue;
 
       const { score, details } = calculateScore(dealProps, bkProps);
       const avatarUrl = bkProps.foto_betreuungskraft || "";
