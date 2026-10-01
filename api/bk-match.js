@@ -1,8 +1,9 @@
 const { calculateScore, isGenderExcluded, isAnzahlExcluded, isRauchenExcluded } = require("./scoring");
+const { requireHubSpotSignature } = require("../lib/hubspot-signature");
 
 const HUBSPOT_API = "https://api-eu1.hubapi.com";
 const TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
-const PORTAL_ID = process.env.HUBSPOT_PORTAL_ID || "143405850";
+const PORTAL_ID = process.env.HUBSPOT_PORTAL_ID || "139583220";
 
 const DEAL_PROPERTIES = [
   "gewunschte_betreuungskategorie",
@@ -279,10 +280,8 @@ async function fetchEinsatzStatus(contactIds) {
 }
 
 module.exports = async function handler(req, res) {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  // Nur signierte Requests von HubSpot (hubspot.fetch) zulassen
+  if (!requireHubSpotSignature(req, res)) return;
 
   try {
     const { dealId, nurFreie } = req.query;
