@@ -35,16 +35,6 @@ const DETAIL_PROPERTIES = [
   "zertifikate",
   // Foto
   "foto_betreuungskraft",
-  // Bewertungen (Rollup)
-  "bk_bewertung",
-  "bk_anzahl_bewertungen",
-  "bk_freundlichkeit",
-  "bk_punktlichkeit",
-  "bk_fachkenntnis",
-  "bk_kommunikation",
-  "bk_hygiene",
-  "bk_allg_zufriedenheit",
-  "bk_weiterempfehlung_anzahl",
 ];
 
 async function hubspotFetch(path, options = {}) {
@@ -142,17 +132,6 @@ module.exports = async function handler(req, res) {
         ausbildungen: p.ausbildungen_bk || "",
         sonstigeAusbildung: p.sonstige_ausbildung__details || "",
         zertifikate: p.zertifikate || "",
-      },
-      bewertung: {
-        durchschnitt: parseFloat(p.bk_bewertung) || 0,
-        anzahl: parseInt(p.bk_anzahl_bewertungen) || 0,
-        freundlichkeit: parseFloat(p.bk_freundlichkeit) || 0,
-        puenktlichkeit: parseFloat(p.bk_punktlichkeit) || 0,
-        fachkenntnis: parseFloat(p.bk_fachkenntnis) || 0,
-        kommunikation: parseFloat(p.bk_kommunikation) || 0,
-        hygiene: parseFloat(p.bk_hygiene) || 0,
-        gesamt: parseFloat(p.bk_allg_zufriedenheit) || 0,
-        weiterempfehlungen: parseInt(p.bk_weiterempfehlung_anzahl) || 0,
       },
       link: `https://app-eu1.hubspot.com/contacts/${PORTAL_ID}/contact/${contactId}`,
     });
